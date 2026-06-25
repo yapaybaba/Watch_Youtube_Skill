@@ -152,11 +152,14 @@ def _transcribe_with_whisper(audio_path: Path, api_key: str) -> list[TranscriptE
 
     entries = []
     for seg in response.segments or []:
-        text = _WHITESPACE_RE.sub(" ", seg.text.strip())
+        raw = seg["text"] if isinstance(seg, dict) else seg.text
+        text = _WHITESPACE_RE.sub(" ", raw.strip())
         if text:
+            start = seg["start"] if isinstance(seg, dict) else seg.start
+            end = seg["end"] if isinstance(seg, dict) else seg.end
             entries.append(TranscriptEntry(
-                start_sec=float(seg.start),
-                end_sec=float(seg.end),
+                start_sec=float(start),
+                end_sec=float(end),
                 text=text,
             ))
     return entries
