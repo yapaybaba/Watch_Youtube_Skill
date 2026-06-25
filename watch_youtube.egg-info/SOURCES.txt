@@ -1,3 +1,4 @@
+README.md
 setup.py
 watch_youtube/__init__.py
 watch_youtube/analyzer.py
