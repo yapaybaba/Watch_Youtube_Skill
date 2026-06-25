@@ -130,6 +130,15 @@ def cli(
         )
         duration = get_video_duration(result.video_path)
         fixed_count = _estimate_fixed_count(duration)
+
+        if not timestamps and result.transcript_source == "synthetic" and duration:
+            from . import SmartTimestamp
+            timestamps = [
+                SmartTimestamp(time_sec=float(t), reason="synthetic:30s_interval", transcript_text="")
+                for t in range(30, int(duration), 30)
+            ][:max_frames]
+            log.info(f"          Synthetic fallback: {len(timestamps)} timestamps at 30s intervals")
+
         log.info(
             f"          Found {len(timestamps)} smart timestamps "
             f"(vs ~{fixed_count} at fixed 30s intervals)"

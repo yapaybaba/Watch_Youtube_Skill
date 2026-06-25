@@ -77,7 +77,8 @@ def _download_transcript(url: str, output_dir: Path) -> tuple[Path | None, str]:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
     except yt_dlp.utils.DownloadError as e:
-        raise ValueError(f"Cannot access video: {e}") from e
+        logger.warning(f"Transcript download failed ({e}), falling back to synthetic timestamps")
+        return None, "none"
 
     for ext in ("vtt", "srt"):
         matches = list(output_dir.glob(f"*.{ext}"))
