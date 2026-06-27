@@ -3,3 +3,12 @@ output/
 venv/
 __pycache__/
 docs/wiki/
+# macOS
+.DS_Store
+
+# Local environment
+.env
+
+# Generated files
+docs/
+*.backup
