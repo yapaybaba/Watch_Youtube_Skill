@@ -1,16 +1,34 @@
-"""Download YouTube transcripts, audio, and video via yt-dlp."""
+"""Download YouTube transcripts, audio, and video with multi-strategy fallback."""
 
 import re
 import time
 import logging
+import os
 from pathlib import Path
+from typing import Optional
 
 import yt_dlp
 import webvtt
+import requests
+
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
+    TRANSCRIPT_API_AVAILABLE = True
+except ImportError:
+    TRANSCRIPT_API_AVAILABLE = False
 
 from . import DownloadResult, TranscriptEntry
 
 logger = logging.getLogger(__name__)
+
+# Invidious instances (prioritized by speed/reliability)
+INVIDIOUS_INSTANCES = [
+    "https://invidious.jing.rocks",
+    "https://iv.ggtyler.dev",
+    "https://invidious.privacyredirect.com",
+    "https://inv.vern.cc",
+]
 
 _TIMECODE_RE = re.compile(r"(\d+):(\d{2}):(\d{2})[.,](\d+)")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -18,7 +36,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 
 
 def extract_video_id(url: str) -> str:
-    """Extract YouTube video ID from URL. Falls back to 'unknown'."""
+    """Extract YouTube video ID from URL."""
     patterns = [
         r"(?:v=|youtu\.be/|embed/|shorts/)([A-Za-z0-9_-]{11})",
     ]
@@ -29,29 +47,188 @@ def extract_video_id(url: str) -> str:
     return "unknown"
 
 
+def _parse_timestamp(ts_str: str) -> float:
+    """Parse HH:MM:SS.mmm or MM:SS.mmm to seconds."""
+    try:
+        parts = ts_str.replace(',', '.').split(':')
+        hours = int(parts[0]) if len(parts) > 2 else 0
+        minutes = int(parts[1]) if len(parts) > 1 else 0
+        seconds = float(parts[-1])
+        return hours * 3600 + minutes * 60 + seconds
+    except:
+        return 0.0
+
+
+def _get_transcript_api(video_id: str) -> Optional[list[TranscriptEntry]]:
+    """Strategy 1: Use youtube-transcript-api (no bot detection)."""
+    if not TRANSCRIPT_API_AVAILABLE:
+        logger.debug("youtube-transcript-api not available")
+        return None
+
+    try:
+        logger.info(f"[1/4] Trying youtube-transcript-api for {video_id}...")
+        # Try multiple languages
+        transcripts = YouTubeTranscriptApi.get_transcript(
+            video_id,
+            languages=['en', 'tr', 'es', 'fr', 'de', 'pt', 'ja', 'zh-Hans']
+        )
+
+        entries = []
+        for item in transcripts:
+            start = item['start']
+            duration = item.get('duration', 0)
+            entries.append(TranscriptEntry(
+                start_sec=start,
+                end_sec=start + duration,
+                text=item['text'].strip()
+            ))
+
+        logger.info(f"✓ Transcript downloaded via youtube-transcript-api ({len(entries)} segments)")
+        return entries if entries else None
+    except (TranscriptsDisabled, NoTranscriptFound):
+        logger.debug(f"Transcripts disabled or not found for {video_id}")
+        return None
+    except Exception as e:
+        logger.debug(f"youtube-transcript-api failed: {type(e).__name__}: {e}")
+        return None
+
+
+def _get_transcript_ytdlp_oauth(url: str, video_id: str, output_dir: Path) -> Optional[list[TranscriptEntry]]:
+    """Strategy 2: Use yt-dlp with OAuth2 cookie (if available)."""
+    try:
+        cookie_file = os.path.expanduser("~/.youtube_cookies.txt")
+        if not os.path.exists(cookie_file):
+            logger.debug("No YouTube cookies found at ~/.youtube_cookies.txt")
+            return None
+
+        logger.info(f"[2/4] Trying yt-dlp with cookies for {video_id}...")
+
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "writesubtitles": True,
+            "writeautomaticsub": True,
+            "allsubtitles": False,
+            "subtitleslangs": ["en", "en-US"],
+            "subtitlesformat": "vtt",
+            "skip_download": True,
+            "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
+            "cookies": cookie_file,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(url, download=True)
+
+        # Look for downloaded subtitle file
+        for ext in ("vtt", "srt"):
+            matches = list(output_dir.glob(f"{video_id}*.{ext}"))
+            if matches:
+                result = _parse_transcript_file(matches[0], ext)
+                logger.info(f"✓ Transcript downloaded via yt-dlp with cookies")
+                return result
+
+    except Exception as e:
+        logger.debug(f"yt-dlp cookies failed: {type(e).__name__}: {e}")
+
+    return None
+
+
+def _get_transcript_invidious(video_id: str) -> Optional[list[TranscriptEntry]]:
+    """Strategy 3: Use Invidious proxy (no bot detection, privacy-focused)."""
+    logger.info(f"[3/4] Trying Invidious proxy for {video_id}...")
+
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            # Invidious API endpoint for video info with captions
+            url = f"{instance}/api/v1/videos/{video_id}"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+            captions = data.get('captions', [])
+
+            if not captions:
+                logger.debug(f"No captions in {instance}")
+                continue
+
+            # Get the first English caption track
+            caption = next((c for c in captions if c.get('language', '').startswith('English')), captions[0])
+            caption_url = f"{instance}{caption['url']}"
+
+            caption_response = requests.get(caption_url, timeout=10)
+            caption_response.raise_for_status()
+
+            # Parse VTT captions
+            entries = []
+            lines = caption_response.text.split('\n')
+            current_text = []
+            current_start = 0
+
+            for line in lines:
+                if '-->' in line:
+                    # Timestamp line
+                    parts = line.split(' --> ')
+                    if len(parts) >= 1:
+                        current_start = _parse_timestamp(parts[0].strip())
+                elif line.strip() and not line.startswith('WEBVTT'):
+                    # Caption text
+                    clean_text = _HTML_TAG_RE.sub('', line).strip()
+                    if clean_text:
+                        entries.append(TranscriptEntry(
+                            start_sec=current_start,
+                            end_sec=current_start + 1.0,
+                            text=clean_text
+                        ))
+
+            if entries:
+                logger.info(f"✓ Transcript downloaded via Invidious ({instance}, {len(entries)} segments)")
+                return entries
+
+        except requests.Timeout:
+            logger.debug(f"Invidious {instance} timeout")
+        except Exception as e:
+            logger.debug(f"Invidious {instance} failed: {type(e).__name__}")
+
+    logger.debug("All Invidious instances exhausted")
+    return None
+
+
 def download_video(url: str, output_dir: Path, groq_api_key: str | None = None) -> DownloadResult:
-    """Orchestrate transcript + video download with Whisper fallback."""
+    """Orchestrate transcript + video download with 3-strategy fallback chain."""
     video_id = extract_video_id(url)
-    transcript_path, fmt = _download_transcript(url, output_dir)
 
     entries: list[TranscriptEntry] = []
     source = "none"
 
-    if transcript_path is not None:
-        entries = _parse_transcript_file(transcript_path, fmt)
-        source = fmt
-        logger.debug(f"Parsed {len(entries)} entries from {fmt} transcript")
-    elif groq_api_key:
-        logger.info("No transcript found — downloading audio for Whisper transcription...")
-        audio_path = _download_audio(url, output_dir)
-        entries = _transcribe_with_whisper(audio_path, groq_api_key)
-        source = "whisper"
-        logger.debug(f"Whisper returned {len(entries)} entries")
-    else:
-        logger.warning("No transcript and no GROQ_API_KEY — using synthetic 30s intervals")
-        source = "synthetic"
+    # Try transcript download with fallback chain
+    logger.info(f"Starting download pipeline for {video_id}...")
 
+    # Strategy 1: youtube-transcript-api
+    entries_result = _get_transcript_api(video_id)
+    if entries_result:
+        entries = entries_result
+        source = "youtube-transcript-api"
+    else:
+        # Strategy 2: yt-dlp with cookies
+        entries_result = _get_transcript_ytdlp_oauth(url, video_id, output_dir)
+        if entries_result:
+            entries = entries_result
+            source = "yt-dlp-oauth"
+        else:
+            # Strategy 3: Invidious proxy
+            entries_result = _get_transcript_invidious(video_id)
+            if entries_result:
+                entries = entries_result
+                source = "invidious"
+            else:
+                # No transcript available — use video frames only
+                logger.warning("[3/3] All transcript strategies exhausted. Proceeding with video frames only.")
+                source = "none"
+
+    # Download video
+    logger.info("Downloading video file...")
     video_path = _download_video_file(url, output_dir)
+
     return DownloadResult(
         video_path=video_path,
         transcript_entries=entries,
@@ -61,168 +238,73 @@ def download_video(url: str, output_dir: Path, groq_api_key: str | None = None) 
     )
 
 
-def _download_transcript(url: str, output_dir: Path) -> tuple[Path | None, str]:
-    """Try manual then auto-generated subtitles; return (path, format) or (None, 'none')."""
+def _download_video_file(url: str, output_dir: Path) -> Path:
+    """Download the best quality video file."""
     opts = {
-        "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
-        "quiet": True,
+        "format": "best",
+        "outtmpl": str(output_dir / "video.%(ext)s"),
+        "quiet": False,
         "no_warnings": True,
-        "writesubtitles": True,
-        "writeautomaticsub": True,
-        "subtitleslangs": ["en", "en-US", "en-GB"],
-        "subtitlesformat": "vtt",
-        "skip_download": True,
     }
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
-    except yt_dlp.utils.DownloadError as e:
-        logger.warning(f"Transcript download failed ({e}), falling back to synthetic timestamps")
-        return None, "none"
+    except Exception as e:
+        logger.error(f"Video download failed: {e}")
+        raise
 
-    for ext in ("vtt", "srt"):
-        matches = list(output_dir.glob(f"*.{ext}"))
-        if matches:
-            return matches[0], ext
-
-    return None, "none"
-
-
-def _download_audio(url: str, output_dir: Path) -> Path:
-    """Download audio-only as .mp3 for Whisper transcription."""
-    opts = {
-        "outtmpl": str(output_dir / "%(id)s_audio.%(ext)s"),
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bestaudio/best",
-        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
-    }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
-
-    matches = list(output_dir.glob("*_audio.mp3"))
-    if not matches:
-        raise RuntimeError("Audio download produced no file")
-    return matches[0]
-
-
-def _download_video_file(url: str, output_dir: Path) -> Path:
-    """Download best quality MP4 video for frame extraction."""
-    opts = {
-        "outtmpl": str(output_dir / "%(id)s_video.%(ext)s"),
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
-        "merge_output_format": "mp4",
-    }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
-
-    matches = list(output_dir.glob("*_video.mp4"))
-    if not matches:
-        # Some videos download without the _video suffix when merge happens
-        matches = list(output_dir.glob("*.mp4"))
-    if not matches:
-        raise RuntimeError("Video download produced no .mp4 file")
-    return matches[0]
-
-
-def _transcribe_with_whisper(audio_path: Path, api_key: str) -> list[TranscriptEntry]:
-    """Transcribe audio via Groq Whisper API with segment-level timestamps."""
-    from groq import Groq, RateLimitError
-
-    client = Groq(api_key=api_key)
-
-    for attempt in range(2):
-        try:
-            with audio_path.open("rb") as f:
-                response = client.audio.transcriptions.create(
-                    file=(audio_path.name, f),
-                    model="whisper-large-v3-turbo",
-                    response_format="verbose_json",
-                    timestamp_granularities=["segment"],
-                )
-            break
-        except RateLimitError:
-            if attempt == 0:
-                logger.warning("Groq rate limit hit — retrying in 60s...")
-                time.sleep(60)
-            else:
-                raise
-
-    entries = []
-    for seg in response.segments or []:
-        raw = seg["text"] if isinstance(seg, dict) else seg.text
-        text = _WHITESPACE_RE.sub(" ", raw.strip())
-        if text:
-            start = seg["start"] if isinstance(seg, dict) else seg.start
-            end = seg["end"] if isinstance(seg, dict) else seg.end
-            entries.append(TranscriptEntry(
-                start_sec=float(start),
-                end_sec=float(end),
-                text=text,
-            ))
-    return entries
+    video_paths = list(output_dir.glob("video.*"))
+    if video_paths:
+        return video_paths[0]
+    raise FileNotFoundError("No video file found after download")
 
 
 def _parse_transcript_file(path: Path, fmt: str) -> list[TranscriptEntry]:
+    """Parse VTT or SRT transcript file into entries."""
+    entries = []
+
     if fmt == "vtt":
-        return _parse_vtt(path)
-    return _parse_srt(path)
+        try:
+            for caption in webvtt.read(str(path)):
+                text = caption.text.replace("\n", " ").strip()
+                text = _HTML_TAG_RE.sub("", text)
+                text = _WHITESPACE_RE.sub(" ", text)
+                start = _parse_timestamp(caption.start)
+                entries.append(
+                    TranscriptEntry(
+                        start_sec=start,
+                        end_sec=_parse_timestamp(caption.end),
+                        text=text,
+                    )
+                )
+        except Exception as e:
+            logger.error(f"VTT parsing failed: {e}")
+    elif fmt == "srt":
+        # Simple SRT parser
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.read().strip().split("\n\n")
+            for block in lines:
+                parts = block.split("\n", 2)
+                if len(parts) >= 3:
+                    time_range = parts[1]
+                    text = parts[2].replace("\n", " ").strip()
+                    text = _HTML_TAG_RE.sub("", text)
+                    text = _WHITESPACE_RE.sub(" ", text)
 
+                    try:
+                        start_str, end_str = time_range.split(" --> ")
+                        start = _parse_timestamp(start_str.strip())
+                        end = _parse_timestamp(end_str.strip())
+                        entries.append(
+                            TranscriptEntry(
+                                start_sec=start,
+                                end_sec=end,
+                                text=text,
+                            )
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to parse SRT entry: {e}")
 
-def _parse_vtt(path: Path) -> list[TranscriptEntry]:
-    """Parse WebVTT using webvtt-py; strips HTML tags and deduplicates rolling-window lines."""
-    entries = []
-    try:
-        captions = webvtt.read(str(path))
-    except Exception:
-        # Some auto-captions have malformed headers; fall back to raw read
-        captions = webvtt.read_buffer(path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True))
-
-    seen: set[str] = set()
-    for cap in captions:
-        clean = _HTML_TAG_RE.sub("", cap.text)
-        clean = _WHITESPACE_RE.sub(" ", clean).strip()
-        if not clean or clean in seen:
-            continue
-        seen.add(clean)
-        entries.append(TranscriptEntry(
-            start_sec=_timecode_to_seconds(cap.start),
-            end_sec=_timecode_to_seconds(cap.end),
-            text=clean,
-        ))
     return entries
 
 
-_SRT_BLOCK_RE = re.compile(
-    r"\d+\r?\n"
-    r"(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\r?\n"
-    r"([\s\S]*?)(?=\n\s*\n|\Z)",
-    re.MULTILINE,
-)
-
-
-def _parse_srt(path: Path) -> list[TranscriptEntry]:
-    """Parse SRT subtitle file with pure regex."""
-    text = path.read_text(encoding="utf-8", errors="replace")
-    entries = []
-    for m in _SRT_BLOCK_RE.finditer(text):
-        start_raw, end_raw, body = m.groups()
-        clean = _HTML_TAG_RE.sub("", body).strip()
-        clean = _WHITESPACE_RE.sub(" ", clean)
-        if clean:
-            entries.append(TranscriptEntry(
-                start_sec=_timecode_to_seconds(start_raw),
-                end_sec=_timecode_to_seconds(end_raw),
-                text=clean,
-            ))
-    return entries
-
-
-def _timecode_to_seconds(tc: str) -> float:
-    """Convert HH:MM:SS.mmm or HH:MM:SS,mmm to float seconds."""
-    tc = tc.strip().replace(",", ".")
-    parts = tc.split(":")
-    h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
-    return h * 3600 + m * 60 + s

@@ -1,0 +1,16 @@
+# Watch-Youtube Configuration
+
+groq_api_key: ${GROQ_API_KEY}  # Set via environment variable
+wiki_output_dir: /Users/ozgurozturk/ObsidianVaults/SecondBrain/01-PERMANENT/
+account: yapaymeraklisi
+youtube_cookies: ~/.youtube_cookies_yapaymeraklisi.txt
+
+# Output options
+max_frames: 12
+jpeg_quality: 85
+grid_cols: 3
+
+# Video analysis
+use_transcript: true
+transcript_source: youtube-transcript-api  # or yt-dlp, invidious
+npl_analysis: true

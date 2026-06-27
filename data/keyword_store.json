@@ -335,7 +335,7 @@
       "phrase": "claude code",
       "weight": 0.5,
       "source": "learned",
-      "occurrences": 1
+      "occurrences": 2
     },
     {
       "phrase": "look",
@@ -417,9 +417,9 @@
     },
     {
       "phrase": "cloud code",
-      "weight": 0.5,
+      "weight": 0.8,
       "source": "learned",
-      "occurrences": 1
+      "occurrences": 4
     },
     {
       "phrase": "pdfs powerpoints",
@@ -489,6 +489,240 @@
     },
     {
       "phrase": "dgx spark",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "project",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "codebase",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 2
+    },
+    {
+      "phrase": "contain",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "taking",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "independent",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "configuration",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "contain project",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "new feature",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "note taking",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "open contain",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "models",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "model want",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "deepseek v4",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "real world",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "model switch",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "way ll",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "100 times",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "thinking tokens",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "settings json",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "max thinking",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "geli\u015ftiriyorsan\u0131z zaman",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "code da",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "b\u00f6yle bir",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "bir terminal",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "10 000",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "yeni bir",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "bir projede",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "projede ba\u015flatt\u0131\u011f\u0131mda",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "bunun i\u00e7in",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "learn codebase",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "codebase diyerek",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "ba\u015fka bir",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "\u015fimdi ba\u015fka",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "olu\u015fturulmad\u0131\u011f\u0131n\u0131 s\u00f6ylemi\u015f",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "open cloud",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "open code",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "end end",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "like end",
+      "weight": 0.5,
+      "source": "learned",
+      "occurrences": 1
+    },
+    {
+      "phrase": "use like",
       "weight": 0.5,
       "source": "learned",
       "occurrences": 1
